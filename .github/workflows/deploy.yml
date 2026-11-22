@@ -21,7 +21,7 @@ jobs:
       - name: Instalar dependencias y ejecutar pruebas
         run: |
           pip install --no-cache-dir -r requirements.txt
-          pytest -v
+          PYTHONPATH=. pytest -v
 
       - name: Iniciar sesión en Docker Hub
         uses: docker/login-action@v3
