@@ -38,4 +38,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo-app:${{ github.sha }}
             ${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo-app:latest
 
-      
+      - name: Disparar despliegue automático en Render
+        run: |
+          curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo "Deploy hook disparado para commit ${{ github.sha }}"
