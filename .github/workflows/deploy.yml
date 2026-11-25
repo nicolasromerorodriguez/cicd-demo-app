@@ -8,6 +8,8 @@ on:
 jobs:
   test-build-push-deploy:
     runs-on: ubuntu-latest
+    env:
+      IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo-app
 
     steps:
       - name: Checkout código
@@ -29,16 +31,69 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Construir y publicar imagen inmutable con SHA
+      - name: Construir y publicar imagen
+        id: publish
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64
           push: true
+          build-args: APP_COMMIT=${{ github.sha }}
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo-app:${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo-app:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
 
-      - name: Disparar despliegue automático en Render
+      - name: Solicitar a Render la imagen publicada por digest
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_APP_URL: ${{ vars.RENDER_APP_URL }}
         run: |
-          curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
-          echo "Deploy hook disparado para commit ${{ github.sha }}"
+          if [[ -z "$RENDER_APP_URL" ]]; then
+            echo "::error::Configura RENDER_APP_URL con la URL pública del servicio Existing Image."
+            exit 1
+          fi
+          if [[ -z "$RENDER_DEPLOY_HOOK_URL" ]]; then
+            echo "::error::Configura el secreto RENDER_DEPLOY_HOOK_URL del servicio Existing Image."
+            exit 1
+          fi
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::El paso de publicación no devolvió un digest válido."
+            exit 1
+          fi
+
+          echo "Commit $GITHUB_SHA | Digest publicado $IMAGE_DIGEST"
+          if ! http_code=$(curl -q --silent --output /dev/null --write-out '%{http_code}' \
+            --max-time 20 --request POST --url-query "imgURL=$IMAGE@$IMAGE_DIGEST" \
+            --url "$RENDER_DEPLOY_HOOK_URL"); then
+            echo "::error::No se pudo solicitar el despliegue a Render."
+            exit 1
+          fi
+          if [[ "$http_code" != 200 && "$http_code" != 202 ]]; then
+            echo "::error::El hook de Render respondió HTTP $http_code. Revisa el hook y la imagen configurada."
+            exit 1
+          fi
+          echo "Render aceptó el despliegue (HTTP $http_code)."
+
+      - name: Verificar el commit en la URL pública
+        env:
+          RENDER_APP_URL: ${{ vars.RENDER_APP_URL }}
+        run: |
+          health_url="${RENDER_APP_URL%/}/health"
+          deadline=$((SECONDS + 300))
+          while (( (remaining = deadline - SECONDS) > 0 )); do
+            request_timeout=$((remaining < 10 ? remaining : 10))
+            if response=$(curl -q --silent --fail --max-time "$request_timeout" --url "$health_url") &&
+              jq -e --arg expected "$GITHUB_SHA" '.commit == $expected' <<< "$response" >/dev/null 2>&1; then
+              echo "Commit desplegado y verificado: $GITHUB_SHA"
+              exit 0
+            fi
+
+            remaining=$((deadline - SECONDS))
+            if (( remaining > 0 )); then
+              echo "Esperando el commit $GITHUB_SHA en /health."
+              sleep "$((remaining < 5 ? remaining : 5))"
+            fi
+          done
+          echo "::error::/health no confirmó el commit $GITHUB_SHA en 5 minutos. Revisa la URL y los eventos de Render."
+          exit 1

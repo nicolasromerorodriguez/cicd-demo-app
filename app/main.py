@@ -5,11 +5,12 @@ from fastapi.responses import HTMLResponse
 app = FastAPI(title="CI/CD Demo App")
 
 APP_VERSION = os.getenv("APP_VERSION", "v1.0.0 - Base")
+APP_COMMIT = os.getenv("APP_COMMIT", "local")
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": APP_VERSION}
+    return {"status": "ok", "version": APP_VERSION, "commit": APP_COMMIT}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -29,6 +30,7 @@ def home():
     <body>
       <h1>Plataforma Demo CI/CD</h1>
       <span class="badge">Versión actual: {APP_VERSION}</span>
+      <p>Commit: <code>{APP_COMMIT[:7]}</code></p>
       <div class="card">
         <p><strong>Estado:</strong> Despliegue automatizado activo.</p>
         <p>Edita este texto o <code>APP_VERSION</code>, haz <code>git push</code> y observa el pipeline.</p>
