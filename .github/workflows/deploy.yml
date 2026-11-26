@@ -1,42 +1,46 @@
 name: CI/CD Pipeline
 
-
 on:
   push:
     branches:
       - main
 
+env:
+  IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo-app
 
 jobs:
-  test-build-push-deploy:
+  test:
+    name: Pruebas
     runs-on: ubuntu-latest
-    env:
-      IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo-app
-
-
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
-
 
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-
       - name: Instalar dependencias y ejecutar pruebas
         run: |
           pip install --no-cache-dir -r requirements.txt
           PYTHONPATH=. pytest -v
 
+  build-and-push:
+    name: Build y Push
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
 
       - name: Iniciar sesión en Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
 
       - name: Construir y publicar imagen
         id: publish
@@ -50,10 +54,14 @@ jobs:
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:latest
 
-
+  deploy:
+    name: Deploy y Verificación
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
       - name: Solicitar a Render la imagen publicada por digest
         env:
-          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+          IMAGE_DIGEST: ${{ needs.build-and-push.outputs.digest }}
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
           RENDER_APP_URL: ${{ vars.RENDER_APP_URL }}
         run: |
@@ -70,7 +78,6 @@ jobs:
             exit 1
           fi
 
-
           echo "Commit $GITHUB_SHA | Digest publicado $IMAGE_DIGEST"
           if ! http_code=$(curl -q --silent --output /dev/null --write-out '%{http_code}' \
             --max-time 20 --request POST --url-query "imgURL=$IMAGE@$IMAGE_DIGEST" \
@@ -83,7 +90,6 @@ jobs:
             exit 1
           fi
           echo "Render aceptó el despliegue (HTTP $http_code)."
-
 
       - name: Verificar el commit en la URL pública
         env:
@@ -99,7 +105,6 @@ jobs:
               exit 0
             fi
 
-
             remaining=$((deadline - SECONDS))
             if (( remaining > 0 )); then
               echo "Esperando el commit $GITHUB_SHA en /health."
@@ -108,6 +113,3 @@ jobs:
           done
           echo "::error::/health no confirmó el commit $GITHUB_SHA en 5 minutos. Revisa la URL y los eventos de Render."
           exit 1
-
-
-
