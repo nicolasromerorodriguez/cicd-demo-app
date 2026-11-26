@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 
 app = FastAPI(title="CI/CD Demo App")
 
-APP_VERSION = os.getenv("APP_VERSION", "v1.1.0 - Release")
+APP_VERSION = os.getenv("APP_VERSION", "v2")
 APP_COMMIT = os.getenv("APP_COMMIT", "local")
 
 PIPELINE_STAGES = [
