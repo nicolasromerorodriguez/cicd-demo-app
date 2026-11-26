@@ -33,7 +33,7 @@ def home():
       <p>Commit: <code>{APP_COMMIT[:7]}</code></p>
       <div class="card">
         <p><strong>Estado:</strong> Despliegue automatizado activo.</p>
-        <p>Edita este texto o <code>APP_VERSION</code>, haz <code>git push</code> y observa el pipeline.</p>
+        <p>Buen dia mundo.</p>
       </div>
     </body>
     </html>
